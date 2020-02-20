@@ -49,7 +49,7 @@ for i = 1:125
     % object move
     O1 = O1.move(dt);
     p_t = [p_t; O1.x, O1.y, O1.theta];
-    
+
     for j = 1:6
         R(j) = R(j).move(dt); % robot move
         R(j) = R(j).measure(O1); % robot measure
@@ -63,7 +63,8 @@ for i = 1:125
 end
 
 % plot the positions
-figure
+figure    
+colors = ['r', 'g', 'c', 'k', 'y', 'm'];
 for i = 1:size(p_t, 1)
     plot(p_t(i,1), p_t(i,2), 'bo')
     axis([-1, 10, -1, 8])
@@ -71,8 +72,8 @@ for i = 1:size(p_t, 1)
     plot([p_t(i,1), p_t(i,1) + 0.1*cos(p_t(i,3))], [p_t(i,2), p_t(i,2) + 0.1*sin(p_t(i,3))], 'b')
     for j = 1:6
         tmp_p = p_r{j};
-        plot(tmp_p(i,1), tmp_p(i,2), 'ro')
-        plot([tmp_p(i,1), tmp_p(i,1) + 0.1*cos(tmp_p(i,3))], [tmp_p(i,2), tmp_p(i,2) + 0.1*sin(tmp_p(i,3))], 'r')
+        plot(tmp_p(i,1), tmp_p(i,2), 'Color', colors(j), 'Marker', 'o')
+        plot([tmp_p(i,1), tmp_p(i,1) + 0.1*cos(tmp_p(i,3))], [tmp_p(i,2), tmp_p(i,2) + 0.1*sin(tmp_p(i,3))], colors(j))
     end
     hold off
     pause(0.05)
