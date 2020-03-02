@@ -55,8 +55,8 @@ classdef TargetObj
             cx = cx + dx;
             cy = cy + dy;
             
-            this.fx = new_x - this.x;
-            this.fy = new_y - this.y;
+            this.fx = (new_x - this.x)/dt;
+            this.fy = (new_y - this.y)/dt;
             this.x = new_x;
             this.y = new_y;
             this.theta = this.theta + this.w * dt;
