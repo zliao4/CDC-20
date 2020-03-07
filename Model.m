@@ -33,11 +33,5 @@ classdef Model
             mean = cov_tmp^-1 * (alpha * cov1^-1 * mean1 + (1-alpha) * cov2^-1 * mean2);
             cov =  cov_tmp^-1;
         end
-        function this = pass_model(this, m2)
-            m2.fmeanx = this.fmeanx;
-            m2.fmeany = this.fmeany;
-            m2.fcovx = this.fcovx;
-            m2.fcovy = this.fcovy;
-        end
     end
 end
