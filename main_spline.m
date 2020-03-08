@@ -57,19 +57,19 @@ for i = 1:size(a, 2)
     end
     
     % GP learning
-    R(2) = R(2).learnGP;  
-    R(4) = R(4).learnGP;
+    R(2) = R(2).learnGP(5);  
+    R(4) = R(4).learnGP(5);
     
     % make pre_prediction
     R(2) = R(2).pre_prediction(3, dt, 5); 
     R(4) = R(4).pre_prediction(3, dt, 5);
     
-    
-    R(2).fcov(3, :) = R(2).fcov(1, :);
-    R(2).fcov(1, :) = cell(1, R(2).num_target);
-    R(4).fcov(3, :) = R(4).fcov(1, :);
-    R(4).fcov(1, :) = cell(1, R(4).num_target);
-    
+    for j = 1:1
+        R(2).prop_targets(j).fcov(3) = R(2).prop_targets(j).fcov(1);
+        R(2).prop_targets(j).fcov(1) = cell(1, R(2).num_target);
+        R(4).prop_targets(j).fcov(3) = R(4).prop_targets(j).fcov(1);
+        R(4).prop_targets(j).fcov(1) = cell(1, R(4).num_target);
+    end
     % prediction converge
     [R(4), R(2)] = R(4).converge(R(2), 3);
     
@@ -86,10 +86,12 @@ for i = 1:size(a, 2)
     [R(4), R(3)] = R(4).planPath(R(3), dt, 3); % path palnning
     
     for j = 1:num_robot/2
-        if ~isempty(R(2*j).predicted{1})
-            p{2*j} = [p{2*j}, R(2*j).predicted{1}];
-        else
-            p{2*j} = [p{2*j}, {[0, 0]}];
+        for k = 1:1
+            if ~isempty(R(2*j).prop_targets(k).predicted)
+                p{2*j} = [p{2*j}, R(2*j).prop_targets(k).predicted];
+            else
+                p{2*j} = [p{2*j}, {[0, 0]}];
+            end
         end
     end
     
@@ -99,9 +101,11 @@ for i = 1:size(a, 2)
     plot(c_t(:, 1), c_t(:, 2), 'r');
     axis([-5,25, -5, 25])
     for j = 1:num_robot/2
-        tmp = R(2*j).predicted{1};
-        if ~isempty(tmp)
-            plot(tmp(:,1),tmp(:,2),'rx')
+        for k = 1:1
+            tmp = R(2*j).prop_targets(k).predicted;
+            if ~isempty(tmp)
+                plot(tmp(:,1),tmp(:,2),'rx')
+            end
         end
     end
     for j = 1:num_robot
