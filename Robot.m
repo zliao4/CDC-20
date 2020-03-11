@@ -40,7 +40,10 @@ classdef Robot
             w = 1-(d^2-5*d+6.25)/6.25;  % observation weight
             %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1;
             
-            % set whether the robot can oberserve the object
+            %%% CL comment: we probably need a hard threhold to decide
+            %%% whether a sensor can measure or not. Should not use the
+            %%% quadratic function to decide
+            % set whether the robot can oberserve the object            
             if w >= 0
                 m_fx = obj.fx + normrnd(0, 0.1, size(obj.fx));
                 m_fy = obj.fy + normrnd(0, 0.1, size(obj.fy));
@@ -70,6 +73,7 @@ classdef Robot
         % get dataset form other robots
         function [this, r] = addData(this, r)
             for i = 1:this.num_target
+                %%% CL comment: please do not share observations.
                 this.prop_targets(i).obs = [this.prop_targets(i).obs; r.prop_targets(i).new_obs];
                 % clean the new obs in r
                 r.prop_targets(i).new_obs = [];
@@ -128,6 +132,7 @@ classdef Robot
                     end
                 end
                 
+                %%% CL comment: what is this part for?
                 if ~isempty(Data)
                     p = [];
                     
@@ -153,6 +158,7 @@ classdef Robot
         
         
         % predicted the movement of the object based on the GP model
+        %%% CL comment: could you explain what is this function for?
         function this = post_prediction(this, future_frame, dt)
             for i = 1:this.num_target
                 target_property = this.prop_targets(i);
@@ -204,6 +210,7 @@ classdef Robot
                 if isempty(this.prop_targets(i).model) && ~isempty(r.prop_targets(i).model)
                      for t = 1:future_frame
                         this.prop_targets(i).model = [this.prop_targets(i).model, make_model(r, i)];
+                        %%% CL comment: what is this step for?
                         this.prop_targets(i).model(t) = this.prop_targets(i).model(t).converge(r.prop_targets(i).model(t));
                      end
                 elseif isempty(r.prop_targets(i).model) && ~isempty(this.prop_targets(i).model)
@@ -315,6 +322,8 @@ classdef Robot
                 end
             end
             
+            %%% CL comment: can you mathematically write out what A and b
+            %%% are here?
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
             b = [ones([future_frame, 1]) * (3 - this.state(4)); ones([future_frame, 1]) * this.state(4)];
             for j = 1:future_frame
@@ -358,6 +367,7 @@ classdef Robot
                     d1 = norm(mean(p(1:this.prop_targets(j).num_keypoints, 1)) - p1(1), mean(p(1:this.prop_targets(j).num_keypoints), 2) - p1(2));
                     w1 = 1-(d1^2-5*d1+6.25)/6.25;
                     %w1 = exp(5*d1-5)./(1+exp(5*d1-5)) + exp(20-5*d1)./(1+exp(20-5*d1))-1;
+                    %%% CL comment: what does following code do?
                     if w1 >= 0
                         this.next_poses = [this.next_poses; p1(1:2), p(1,3)];
                         break;

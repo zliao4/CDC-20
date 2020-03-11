@@ -37,10 +37,10 @@ c_t = [];
 p_r = {[],[],[],[],[],[]};
 colors = ['r', 'g', 'c', 'k', 'y', 'm'];
 p = {{},{},{},{},{},{}};
-for i = 1:size(a, 2)
+for ii = 1:size(a, 2)
     % object move
-    t.a = a(i);
-    t.w = w(i);
+    t.a = a(ii);
+    t.w = w(ii);
     t = t.move(dt);
     p_t = [p_t; t.x, t.y, t.theta * ones(size(t.x))];
     c_t = [c_t; mean(t.x), mean(t.y), t.theta];
@@ -110,8 +110,8 @@ for i = 1:size(a, 2)
     end
     for j = 1:num_robot
         tmp_p = p_r{j};
-        plot(tmp_p(i,1), tmp_p(i,2), 'Color', colors(j), 'Marker', 'o')
-        plot([tmp_p(i,1), tmp_p(i,1) + 0.5*cos(tmp_p(i,3))], [tmp_p(i,2), tmp_p(i,2) + 0.5*sin(tmp_p(i,3))], colors(j))
+        plot(tmp_p(ii,1), tmp_p(ii,2), 'Color', colors(j), 'Marker', 'o')
+        plot([tmp_p(ii,1), tmp_p(ii,1) + 0.5*cos(tmp_p(ii,3))], [tmp_p(ii,2), tmp_p(ii,2) + 0.5*sin(tmp_p(ii,3))], colors(j))
     end
     hold off
     pause(0.05)
@@ -119,19 +119,19 @@ end
 
 %%
 figure
-for i = 1:size(a, 2)
-    plot(c_t(1:i, 1), c_t(1:i, 2), 'r');
+for ii = 1:size(a, 2)
+    plot(c_t(1:ii, 1), c_t(1:ii, 2), 'r');
     hold on
-    plot(p_t([4*i-3,4*i-2,4*i,4*i-1,4*i-3],1), p_t([4*i-3,4*i-2,4*i,4*i-1,4*i-3],2), 'b')
+    plot(p_t([4*ii-3,4*ii-2,4*ii,4*ii-1,4*ii-3],1), p_t([4*ii-3,4*ii-2,4*ii,4*ii-1,4*ii-3],2), 'b')
     axis([-5, 25, -5, 25])
     for j = 1:num_robot / 2
-        tmp = p{2*j}{i};
+        tmp = p{2*j}{ii};
         plot(tmp(:,1),tmp(:,2),'rx')
     end
     for j = 1:num_robot
         tmp_p = p_r{j};
-        plot(tmp_p(i,1), tmp_p(i,2), 'Color', colors(j), 'Marker', 'o')
-        plot([tmp_p(i,1), tmp_p(i,1) + 0.5*cos(tmp_p(i,3))], [tmp_p(i,2), tmp_p(i,2) + 0.5*sin(tmp_p(i,3))], colors(j))
+        plot(tmp_p(ii,1), tmp_p(ii,2), 'Color', colors(j), 'Marker', 'o')
+        plot([tmp_p(ii,1), tmp_p(ii,1) + 0.5*cos(tmp_p(ii,3))], [tmp_p(ii,2), tmp_p(ii,2) + 0.5*sin(tmp_p(ii,3))], colors(j))
     end
     hold off
     pause(0.05)
