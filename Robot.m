@@ -37,11 +37,11 @@ classdef Robot
             
             % distance between key points of the robot and target
             d = norm([this.state(1) - mean(m_x), this.state(2) - mean(m_y)]); 
-            w = 1-(d^2-5*d+6.25)/6.25;  % observation weight
-            %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1;
+            %w = 1-(d^2-5*d+6.25)/6.25;  % observation weight
+            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1;
             
             % set whether the robot can oberserve the object
-            if w >= 0
+            if w >= 0.1
                 m_fx = obj.fx + normrnd(0, 0.1, size(obj.fx));
                 m_fy = obj.fy + normrnd(0, 0.1, size(obj.fy));
                 m_t = obj.t;
@@ -244,8 +244,8 @@ classdef Robot
                             s = this.trans(s, ctr(2*i-1:2*i), dt);
                             n=  this.prop_targets(j).num_keypoints;
                             d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
-                            %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
-                            w = 1-(d^2-5*d+6.25)/6.25;
+                            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
+                            %w = 1-(d^2-5*d+6.25)/6.25;
                             
                             fcov = this.prop_targets(j).fcov{1};
                             fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
@@ -284,8 +284,8 @@ classdef Robot
                             s = r.trans(s, ctr(2*i-1:2*i), dt);
                             n=  this.prop_targets(j).num_keypoints;
                             d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
-                            %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
-                            w = 1-(d^2-5*d+6.25)/6.25;
+                            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
+                            %w = 1-(d^2-5*d+6.25)/6.25;
                             
                             fcov = this.prop_targets(j).fcov{1};
                             fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
@@ -317,17 +317,20 @@ classdef Robot
             
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
             b = [ones([future_frame, 1]) * (3 - this.state(4)); ones([future_frame, 1]) * this.state(4)];
+            b2 = [ones([future_frame, 1]) * (3 - r.state(4)); ones([future_frame, 1]) * r.state(4)];
             for j = 1:future_frame
                 for k = 1:j
                     A(j, 2 * k) = dt;
                 end
                 b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
             end
             for j = future_frame+1:2*future_frame
                 for k = 1:j-future_frame
                     A(j, 2 * k) = -dt;
                 end
                 b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
             end
                   
             rng default % For reproducibility
@@ -345,7 +348,7 @@ classdef Robot
             x0 = repmat(r.ctr, 1, future_frame)';
             opts2 = optimoptions(@fmincon,'Algorithm','sqp');
             problem2 = createOptimProblem('fmincon','objective',...
-                func2,'x0',x0,'Aineq',A,'bineq',b,'options',opts2);
+                func2,'x0',x0,'Aineq',A,'bineq',b2,'options',opts2);
             ms2 = MultiStart;
             [opt_ctr2,~] = run(ms2,problem2,20);
             r.ctr = opt_ctr2(1:2)';
@@ -356,9 +359,9 @@ classdef Robot
                 p = this.prop_targets(j).predicted;
                 if ~isempty(p)
                     d1 = norm(mean(p(1:this.prop_targets(j).num_keypoints, 1)) - p1(1), mean(p(1:this.prop_targets(j).num_keypoints), 2) - p1(2));
-                    w1 = 1-(d1^2-5*d1+6.25)/6.25;
-                    %w1 = exp(5*d1-5)./(1+exp(5*d1-5)) + exp(20-5*d1)./(1+exp(20-5*d1))-1;
-                    if w1 >= 0
+                    %w1 = 1-(d1^2-5*d1+6.25)/6.25;
+                    w1 = exp(5*d1-5)./(1+exp(5*d1-5)) + exp(20-5*d1)./(1+exp(20-5*d1))-1;
+                    if w1 >= 0.1
                         this.next_poses = [this.next_poses; p1(1:2), p(1,3)];
                         break;
                     end
@@ -369,9 +372,9 @@ classdef Robot
                 pr = this.prop_targets(j).predicted;
                 if ~isempty(pr)
                     d2 = norm(mean(pr(1:this.prop_targets(j).num_keypoints, 1)) - p2(1), mean(pr(1:this.prop_targets(j).num_keypoints, 2)) - p2(2));
-                    %w2 = exp(5*d2-5)./(1+exp(5*d2-5)) + exp(20-5*d2)./(1+exp(20-5*d2))-1;
-                    w2 = 1-(d2^2-5*d2+6.25)/6.25;
-                    if w2 >= 0
+                    w2 = exp(5*d2-5)./(1+exp(5*d2-5)) + exp(20-5*d2)./(1+exp(20-5*d2))-1;
+                    %w2 = 1-(d2^2-5*d2+6.25)/6.25;
+                    if w2 >= 0.1
                         this.next_poses = [this.next_poses; p2(1:2), pr(1,3)];
                         break;
                     end
