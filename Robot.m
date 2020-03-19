@@ -37,11 +37,9 @@ classdef Robot
             
             % distance between key points of the robot and target
             d = norm([this.state(1) - mean(m_x), this.state(2) - mean(m_y)]); 
-            %w = 1-(d^2-5*d+6.25)/6.25;  % observation weight
-            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1;
             
             % set whether the robot can oberserve the object
-            if w >= 0.1
+            if d >= 0 && d <= 5
                 m_fx = obj.fx + normrnd(0, 0.1, size(obj.fx));
                 m_fy = obj.fy + normrnd(0, 0.1, size(obj.fy));
                 m_t = obj.t;
@@ -129,8 +127,6 @@ classdef Robot
                 end
                 
                 if ~isempty(Data)
-                    p = [];
-                    
                     data_tr = [];
                     meas_tr = [];
                     tmp_obs = target_property.obs;
@@ -139,6 +135,7 @@ classdef Robot
                     meas_tr = [meas_tr; tmp_obs(:, 4:5)];
                     
                     this.prop_targets(i).model = {};
+                    this.prop_targets(i).fcov{1} = {};
                     for t = this.cur_t+dt : dt : this.cur_t+dt*future_frame
                         [MeanX, ~] = predict(predicted_x, Data(:,1:3));
                         [MeanY, ~] = predict(predicted_y, Data(:,1:3));
@@ -146,6 +143,8 @@ classdef Robot
                         Data(:, 2) = Data(:, 2) + MeanY * dt;
                         Data(:, 3) = t * ones(size(Data,1),1);
                         this.prop_targets(i).model = [this.prop_targets(i).model, Model(data_tr,meas_tr,Data(:, 1:3),@sptempKernel_2,target_property.hyper_param_x,target_property.hyper_param_y,0.1)];
+                        k = int8((t - this.cur_t) / dt);
+                        this.prop_targets(i).fcov{1} = [this.prop_targets(i).fcov{1}, {this.prop_targets(i).model(k).fcovx}, {this.prop_targets(i).model(k).fcovy}];
                     end
                 end
             end
@@ -192,31 +191,18 @@ classdef Robot
         
         % converge the prediction model of two robots
         function [this, r] = converge(this, r, future_frame)
-            function model_f = make_model(robot, i)
-                pos_f = [-100, -100, 0; -100, -100, 0; -100, -100, 0; -100, -100, 0];
-                mea_f = [0, 0; 0, 0; 0, 0; 0, 0];
-                tes_f = [0, 0, 0; 0, 0, 0; 0, 0, 0; 0, 0, 0];
-                model_f = Model(pos_f,mea_f,tes_f,@sptempKernel_2,robot.prop_targets(i).hyper_param_x,robot.prop_targets(i).hyper_param_y,0.1);
-            end
-            
             % converge the prediction
             for i = 1:this.num_target
                 if isempty(this.prop_targets(i).model) && ~isempty(r.prop_targets(i).model)
-                     for t = 1:future_frame
-                        this.prop_targets(i).model = [this.prop_targets(i).model, make_model(r, i)];
-                        this.prop_targets(i).model(t) = this.prop_targets(i).model(t).converge(r.prop_targets(i).model(t));
-                     end
+                     this.prop_targets(i).model = r.prop_targets(i).model;
                 elseif isempty(r.prop_targets(i).model) && ~isempty(this.prop_targets(i).model)
-                     for t = 1:future_frame
-                        r.prop_targets(i).model = [r.prop_targets(i).model, make_model(this, i)];
-                        this.model{i}(t) = this.prop_targets(i).model(t).converge(r.prop_targets(i).model(t));
-                     end
+                     r.prop_targets(i).model = this.prop_targets(i).model;
                 elseif ~isempty(this.prop_targets(i).model) && ~isempty(r.prop_targets(i).model)
                     for t = 1:future_frame
                         this.prop_targets(i).model(t) = this.prop_targets(i).model(t).converge(r.prop_targets(i).model(t));
                     end
+                    r.prop_targets(i).model = this.prop_targets(i).model;
                 end
-                r.prop_targets(i).model = this.prop_targets(i).model;
             end
             
             % store the converged prediction into fcov
@@ -225,7 +211,7 @@ classdef Robot
                     this.prop_targets(i).fcov{1} = {};
                     r.prop_targets(i).fcov{1} = {};
                     for t = 1:future_frame
-                        this.prop_targets(i).fcov{1} = [this.prop_targets(i).fcov{1}, this.prop_targets(i).model(t).fcovx, this.prop_targets(i).model(t).fcovy];
+                        this.prop_targets(i).fcov{1} = [this.prop_targets(i).fcov{1}, {this.prop_targets(i).model(t).fcovx}, {this.prop_targets(i).model(t).fcovy}];
                         r.prop_targets(i).fcov{1} = [r.prop_targets(i).fcov{1}, {r.prop_targets(i).model(t).fcovx}, {r.prop_targets(i).model(t).fcovy}];
                     end
                 end
@@ -234,29 +220,27 @@ classdef Robot
         
         %% plan the control input based on the predicted position of the object
         function [this, r] = planPath(this, r, dt, future_frame)
-            function loss = loss_func(ctr)
-                loss = 0;
-                s = this.state;
-                for j = 1:this.num_target
-                    p = this.prop_targets(j).predicted;
-                    if ~isempty(p)
-                        for i = 1:future_frame
-                            s = this.trans(s, ctr(2*i-1:2*i), dt);
-                            n=  this.prop_targets(j).num_keypoints;
-                            d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
-                            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
-                            %w = 1-(d^2-5*d+6.25)/6.25;
-                            
-                            fcov = this.prop_targets(j).fcov{1};
+            function loss = cost(loss, s, ctr, j)
+                p = this.prop_targets(j).predicted;
+                if ~isempty(p)
+                    for i = 1:future_frame
+                        s = this.trans(s, ctr(2*i-1:2*i), dt);
+                        n=  this.prop_targets(j).num_keypoints;
+                        d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
+                        %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
+                        w = max(1-(d^2-5*d+6.25)/6.25, 0);
+
+                        fcov = this.prop_targets(j).fcov{1};
+                        if ~isempty(fcov)
                             fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
+                            
                             if ~isempty(this.prop_targets(j).fcov{2})
                                 fcov_pre = this.prop_targets(j).fcov{2};
                                 fcovx_pre = fcov_pre{2*i-1}; fcovy_pre = fcov_pre{2*i};
                             else
                                 pos_f = [-100, -100, 0; -101, -100, 0; -100, -101, 0; -101, -101, 0];
                                 mea_f = [-1; -1; -1; -1];
-                                tes_f = [-101, -100, 1; -102, -100, 1; -101, -101, 1; -102, -101, 1];
-                                tes_f = [-100, -101, 1; -101, -101, 1; -101, -102, 1; -102, -102, 1];
+                                tes_f = [-101, -101, 1; -102, -101, 1; -101, -102, 1; -102, -102, 1];
                                 [~,fcovx_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_x,0.1);
                                 [~,fcovy_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_y,0.1);
                                 sca = 10^-10;
@@ -267,51 +251,25 @@ classdef Robot
                                     fcovy_pre = fcovy_pre + sca*eye(size(fcovy_pre,1));
                                 end
                             end
-                            loss = loss + 1/2*((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w;   
-                        end
-                        alpha = 0.08;
-%                         loss = loss + alpha * sum(ctr.^2);
+                            loss = loss + 1/2*((logdet(fcovx)+logdet(fcovy))) * w;
+                        end   
                     end
+%                     alpha = 0.08;
+%                     loss = loss + alpha * sum(ctr.^2);
+                end
+            end
+            function loss = loss_func(ctr)
+                loss = 0;
+                s = this.state;
+                for j = 1:this.num_target
+                    loss = cost(loss, s, ctr, j);
                 end 
             end
             function loss = loss_func2(ctr)
                 loss = 0;
                 s = r.state;
                 for j = 1:r.num_target
-                    p = this.prop_targets(j).predicted;
-                    if ~isempty(p)
-                        for i = 1:future_frame
-                            s = r.trans(s, ctr(2*i-1:2*i), dt);
-                            n=  this.prop_targets(j).num_keypoints;
-                            d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
-                            w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
-                            %w = 1-(d^2-5*d+6.25)/6.25;
-                            
-                            fcov = this.prop_targets(j).fcov{1};
-                            fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
-                            if ~isempty(this.prop_targets(j).fcov{2})
-                                fcov_pre = this.prop_targets(j).fcov{2};
-                                fcovx_pre = fcov_pre{2*i-1}; fcovy_pre = fcov_pre{2*i};
-                                
-                            else
-                                pos_f = [-100, -100, 0; -100, -100, 0; -100, -100, 0; -100, -100, 0];
-                                mea_f = [0; 0; 0; 0];
-                                tes_f = [0, 0, 0; 0, 0, 0; 0, 0, 0; 0, 0, 0];
-                                [~,fcovx_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_x,0.1);
-                                [~,fcovy_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_y,0.1);
-                                sca = 10^-10;
-                                if(cond(fcovx_pre) > 10^5)
-                                    fcovx_pre = fcovx_pre + sca*eye(size(fcovx_pre,1));
-                                end
-                                if(cond(fcovy_pre) > 10^5)
-                                    fcovy_pre = fcovy_pre + sca*eye(size(fcovy_pre,1));
-                                end
-                            end
-                            loss = loss + 1/2*((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w;   
-                        end
-                        alpha = 0.1;
-%                         loss = loss + alpha * sum(ctr.^2);
-                    end
+                    loss = cost(loss, s, ctr, j);
                 end
             end
             
@@ -341,7 +299,7 @@ classdef Robot
             problem = createOptimProblem('fmincon','objective',...
                 func,'x0',x0,'Aineq',A,'bineq',b,'options',opts);
             ms = MultiStart;
-            [opt_ctr,~] = run(ms,problem,20);
+            [opt_ctr,~] = run(ms,problem,2);
             this.ctr = opt_ctr(1:2)';
             
             func2 = @loss_func2;
@@ -350,7 +308,7 @@ classdef Robot
             problem2 = createOptimProblem('fmincon','objective',...
                 func2,'x0',x0,'Aineq',A,'bineq',b2,'options',opts2);
             ms2 = MultiStart;
-            [opt_ctr2,~] = run(ms2,problem2,20);
+            [opt_ctr2,~] = run(ms2,problem2,2);
             r.ctr = opt_ctr2(1:2)';
             
             % decide whether next time frame the robot can measure the target
@@ -359,9 +317,7 @@ classdef Robot
                 p = this.prop_targets(j).predicted;
                 if ~isempty(p)
                     d1 = norm(mean(p(1:this.prop_targets(j).num_keypoints, 1)) - p1(1), mean(p(1:this.prop_targets(j).num_keypoints), 2) - p1(2));
-                    %w1 = 1-(d1^2-5*d1+6.25)/6.25;
-                    w1 = exp(5*d1-5)./(1+exp(5*d1-5)) + exp(20-5*d1)./(1+exp(20-5*d1))-1;
-                    if w1 >= 0.1
+                    if d1 >= 0 && d1 <= 5
                         this.next_poses = [this.next_poses; p1(1:2), p(1,3)];
                         break;
                     end
@@ -372,9 +328,7 @@ classdef Robot
                 pr = this.prop_targets(j).predicted;
                 if ~isempty(pr)
                     d2 = norm(mean(pr(1:this.prop_targets(j).num_keypoints, 1)) - p2(1), mean(pr(1:this.prop_targets(j).num_keypoints, 2)) - p2(2));
-                    w2 = exp(5*d2-5)./(1+exp(5*d2-5)) + exp(20-5*d2)./(1+exp(20-5*d2))-1;
-                    %w2 = 1-(d2^2-5*d2+6.25)/6.25;
-                    if w2 >= 0.1
+                    if d2 >= 0 && d2 <= 5
                         this.next_poses = [this.next_poses; p2(1:2), pr(1,3)];
                         break;
                     end
@@ -385,11 +339,13 @@ classdef Robot
             for j = 1:this.num_target
                 this.prop_targets(j).fcov(2) = this.prop_targets(j).fcov(3);
                 this.prop_targets(j).fcov(3) = cell(1, 1);
+                this.prop_targets(j).fcov(1) = cell(1, 1);
             end
         end
         
         function [this, r] = pass_next_pos(this, r)
             r.next_poses = this.next_poses;
+            this.next_poses = [];
         end
 
     end
