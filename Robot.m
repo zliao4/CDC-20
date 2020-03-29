@@ -13,6 +13,8 @@ classdef Robot
         
         grad = [];
         next_poses = []; % the robots' position in next time frame
+        
+        entropy;
     end
     %% 
     methods
@@ -47,6 +49,7 @@ classdef Robot
                 this.prop_targets(obj.idx).obs = [this.prop_targets(obj.idx).obs; m_x, m_y, m_t * ones(size(m_x)), m_fx, m_fy, (1:obj.s)'];
                 this.prop_targets(obj.idx).new_obs = [this.prop_targets(obj.idx).new_obs; m_x, m_y, m_t * ones(size(m_x)), m_fx, m_fy, (1:obj.s)'];
             end
+            
         end
         
         %% the robot move for one step
@@ -71,7 +74,9 @@ classdef Robot
                 this.prop_targets(i).obs = [this.prop_targets(i).obs; r.prop_targets(i).new_obs];
                 % clean the new obs in r
                 r.prop_targets(i).new_obs = [];
-                this.prop_targets(i).num_keypoints = r.prop_targets(i).num_keypoints;
+                if this.prop_targets(i).num_keypoints == 0
+                    this.prop_targets(i).num_keypoints = r.prop_targets(i).num_keypoints;
+                end
             end
         end
         
@@ -218,9 +223,54 @@ classdef Robot
             end
         end
         
+        function this = conjugate(this, future_frame)
+           sigma = 0.1;
+           if ~isempty(this.next_poses)
+               for i = 1:this.num_target
+                   for t = 1:future_frame
+                       if this.next_poses{i}(t) ~= 0
+                           n = this.next_poses{i}(t);
+                           cov = this.prop_targets(i).fcov{1};
+                           if ~isempty(cov)
+                               cov1x = cov{2*t-1};
+                               cov1y = cov{2*t};
+                               mean1x = this.prop_targets(i).model(t).fmeanx;
+                               mean1y = this.prop_targets(i).model(t).fmeany;
+                               this.prop_targets(i).fcov{1}{2*t-1} = (cov1x^-1 + (n * sigma^2 * eye(size(cov1x)))^-1)^-1;
+                               this.prop_targets(i).fcov{1}{2*t} = (cov1y^-1 + (n * sigma^2 * eye(size(cov1y)))^-1)^-1;
+                               this.prop_targets(i).model(t).fcovx = this.prop_targets(i).fcov{1}{2*t-1};
+                               this.prop_targets(i).model(t).fcovy = this.prop_targets(i).fcov{1}{2*t};
+                               this.prop_targets(i).model(t).fmeanx = (cov1x^-1 + (n * sigma^2 * eye(size(cov1x)))^-1)^-1 * cov1x^-1 * mean1x;
+                               this.prop_targets(i).model(t).fmeany = (cov1y^-1 + (n * sigma^2 * eye(size(cov1y)))^-1)^-1 * cov1y^-1 * mean1y;
+                           end
+                       end
+                   end
+               end
+           end
+           
+           for i = 1:this.num_target
+               for t = 1:future_frame
+                   cov = this.prop_targets(i).fcov{1};
+                   if ~isempty(cov)
+                       cov1x = cov{2*t-1};
+                       cov1y = cov{2*t};
+                       mean1x = this.prop_targets(i).model(t).fmeanx;
+                       mean1y = this.prop_targets(i).model(t).fmeany;
+                       this.prop_targets(i).fcov{2}{2*t-1} = (cov1x^-1 + (sigma^2 * eye(size(cov1x)))^-1)^-1;
+                       this.prop_targets(i).fcov{2}{2*t} = (cov1y^-1 + (sigma^2 * eye(size(cov1y)))^-1)^-1;
+                       this.prop_targets(i).model(t).fcovx = this.prop_targets(i).fcov{2}{2*t-1};
+                       this.prop_targets(i).model(t).fcovy = this.prop_targets(i).fcov{2}{2*t};
+                       this.prop_targets(i).model(t).fmeanx = (cov1x^-1 + (sigma^2 * eye(size(cov1x)))^-1)^-1 * cov1x^-1 * mean1x;
+                       this.prop_targets(i).model(t).fmeany = (cov1y^-1 + (sigma^2 * eye(size(cov1y)))^-1)^-1 * cov1y^-1 * mean1y;
+                   end
+               end
+           end
+        end
+        
         %% plan the control input based on the predicted position of the object
         function [this, r] = planPath(this, r, dt, future_frame)
-            function loss = cost(loss, s, ctr, j)
+            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+                gamma = 0.8;
                 p = this.prop_targets(j).predicted;
                 if ~isempty(p)
                     for i = 1:future_frame
@@ -230,47 +280,227 @@ classdef Robot
                         %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
                         w = max(1-(d^2-5*d+6.25)/6.25, 0);
 
-                        fcov = this.prop_targets(j).fcov{1};
+                        fcov = this.prop_targets(j).fcov{2};
                         if ~isempty(fcov)
                             fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
                             
-                            if ~isempty(this.prop_targets(j).fcov{2})
-                                fcov_pre = this.prop_targets(j).fcov{2};
-                                fcovx_pre = fcov_pre{2*i-1}; fcovy_pre = fcov_pre{2*i};
-                            else
-                                pos_f = [-100, -100, 0; -101, -100, 0; -100, -101, 0; -101, -101, 0];
-                                mea_f = [-1; -1; -1; -1];
-                                tes_f = [-101, -101, 1; -102, -101, 1; -101, -102, 1; -102, -102, 1];
-                                [~,fcovx_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_x,0.1);
-                                [~,fcovy_pre,~,~,~,~] = gpInf(pos_f, mea_f, tes_f,@sptempKernel_2,this.prop_targets(j).hyper_param_y,0.1);
-                                sca = 10^-10;
-                                if(cond(fcovx_pre) > 10^5)
-                                    fcovx_pre = fcovx_pre + sca*eye(size(fcovx_pre,1));
-                                end
-                                if(cond(fcovy_pre) > 10^5)
-                                    fcovy_pre = fcovy_pre + sca*eye(size(fcovy_pre,1));
-                                end
+                            fcov_pre = this.prop_targets(j).fcov{1};
+                            fcovx_pre = fcov_pre{2*i-1}; fcovy_pre = fcov_pre{2*i};
+                            
+                            loss = loss + (1-gamma) * gamma^i * 1/2* ((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w; 
+                            
+                            if d <= 5 && d >= 0
+                                entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
                             end
-                            loss = loss + 1/2*((logdet(fcovx)+logdet(fcovy))) * w;
                         end   
                     end
-%                     alpha = 0.08;
-%                     loss = loss + alpha * sum(ctr.^2);
                 end
             end
             function loss = loss_func(ctr)
                 loss = 0;
+                entropy = 0;
                 s = this.state;
+                ctr1 = ctr(1:2*future_frame);
                 for j = 1:this.num_target
-                    loss = cost(loss, s, ctr, j);
+                    [entropy, loss] = cost(loss, s, ctr1, j, entropy);
                 end 
+                this.entropy = entropy;
+                
+                sr = r.state;
+                entropy = 0;
+                ctr2 = ctr(2*future_frame + 1:4 * future_frame);
+                for j = 1:r.num_target
+                    [entropy, loss] = cost(loss, sr, ctr2, j, entropy);
+                end
+                r.entropy = entropy;
+            end
+            
+            A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
+            b = [ones([future_frame, 1]) * (3 - this.state(4)); ones([future_frame, 1]) * this.state(4)];
+            b2 = [ones([future_frame, 1]) * (3 - r.state(4)); ones([future_frame, 1]) * r.state(4)];
+            for j = 1:future_frame
+                for k = 1:j
+                    A(j, 2 * k) = dt;
+                end
+                b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
+            end
+            for j = future_frame+1:2*future_frame
+                for k = 1:j-future_frame
+                    A(j, 2 * k) = -dt;
+                end
+                b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
+            end
+                  
+            rng default % For reproducibility
+            
+            func = @loss_func;
+            x0 = [repmat(this.ctr, 1, future_frame)'; repmat(r.ctr, 1, future_frame)'];
+            opts = optimoptions(@fmincon,'Algorithm','sqp');
+            problem = createOptimProblem('fmincon','objective',...
+                func,'x0',x0,'Aineq',[A, zeros(size(A)); zeros(size(A)), A],...
+                'bineq',[b; b2],'options',opts);
+            ms = MultiStart;
+            [opt_ctr,~] = run(ms,problem,2);
+            this.ctr = opt_ctr(1:2)';
+            r.ctr = opt_ctr(2*future_frame+1:2*future_frame+2)';
+            opt_ctr2 = opt_ctr(2*future_frame+1:4*future_frame);
+            opt_ctr = opt_ctr(1:2*future_frame);
+            
+            % decide whether next time frame the robot can measure the target
+            this.next_poses = cell(1, this.num_target);
+            for j = 1:this.num_target
+                this.next_poses{j} = zeros(1, future_frame);
+                n=  this.prop_targets(j).num_keypoints;
+                p = this.prop_targets(j).predicted;
+                s = this.state;
+                if ~isempty(p)
+                    for i = 1:future_frame
+                        s = this.trans(s, opt_ctr(2*i-1:2*i), dt);
+                        d1 = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); 
+                        if d1 >= 0 && d1 <= 5
+                            this.next_poses{j}(i) = this.next_poses{j}(i) + 1;
+                        end
+                    end
+                end
+                pr = this.prop_targets(j).predicted;
+                sr = r.state;
+                if ~isempty(pr)
+                    for i = 1:future_frame
+                        sr = this.trans(sr, opt_ctr2(2*i-1:2*i), dt);
+                        d2 = norm([sr(1) - mean(pr(i*n-n+1:i*n, 1)), sr(2) - mean(pr(i*n-n+1:i*n, 2))]);
+                        if d2 >= 0 && d2 <= 5
+                            this.next_poses{j}(i) = this.next_poses{j}(i) + 1;
+                        end
+                    end
+                end
+            end
+        end
+        
+        function [this, r] = pass_next_pos(this, r)
+            r.next_poses = this.next_poses;
+            this.next_poses = [];
+        end
+        
+        function [this, r] = planPath_random(this, r, dt, future_frame)
+            this.ctr = [];
+            r.ctr = [];
+            for k = 1: future_frame
+                this.ctr = [this.ctr, pi/6 * (rand - 0.5) / 5, 5 * (rand - 0.5) / 5];
+                r.ctr = [r.ctr, pi/6 * (rand-0.5) / 5, 5 * (rand - 0.5) / 5];
+            end
+            tmps = this.trans(this.state, this.ctr(1:2), dt);
+            tmpsr = this.trans(r.state, r.ctr(1:2), dt);
+            for k = 1:2
+                if tmps(k) >= 25
+                    this.state(k) = this.state(k) - 30;
+                elseif tmps(k) <= -5
+                    this.state(k) = this.state(k) + 30;
+                end
+                if tmpsr(k) >= 25
+                    r.state(k) = r.state(k) - 30;
+                elseif tmpsr(k) <= -5
+                    r.state(k) = r.state(k) + 30;
+                end
+            end
+            
+            entropy = 0;
+            s = this.state;
+            sr = r.state;
+            for j = 1:this.num_target
+                p = this.prop_targets(j).predicted;
+                if ~isempty(p)
+                    for i = 1:future_frame
+                        s = this.trans(s, this.ctr(2*i-1:2*i), dt);
+                        n=  this.prop_targets(j).num_keypoints;
+                        d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
+                        fcovx = this.prop_targets(j).model(i).fcovx;
+                        fcovy = this.prop_targets(j).model(i).fcovy;
+                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
+                           entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                        end
+                        
+                        sr = this.trans(sr, r.ctr(2*i-1:2*i), dt);
+                        d = norm([sr(1) - mean(p(i*n-n+1:i*n, 1)), sr(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
+                        fcovx = this.prop_targets(j).model(i).fcovx;
+                        fcovy = this.prop_targets(j).model(i).fcovy;
+                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
+                           entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                        end
+                    end   
+                end
+            end
+            this.entropy = entropy;
+            r.entropy = entropy;
+            this.ctr = this.ctr(1:2);
+            r.ctr = r.ctr(1:2);
+        end
+        
+        function [this, r] = planPath_pursue_nearest(this, r, dt, future_frame)
+            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+                gamma = 0.8; 
+                p = this.prop_targets(j).predicted;
+                if ~isempty(p)
+                    for i = 1:future_frame
+                        s = this.trans(s, ctr(2*i-1:2*i), dt);
+                        n=  this.prop_targets(j).num_keypoints;
+                        d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
+                        loss = loss + (1-gamma) * gamma^i * d;
+
+                        fcovx = this.prop_targets(j).model(i).fcovx;
+                        fcovy = this.prop_targets(j).model(i).fcovy;
+                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
+                           entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                        end
+                    end   
+                end
+            end
+            function loss = loss_func(ctr)
+                loss = 0;
+                entropy = 0;
+                s = this.state;
+                d = Inf;
+                nearest = 0;
+                for j = 1:this.num_target
+                    p = this.prop_targets(j).predicted;
+                    if ~isempty(p)
+                        n =  this.prop_targets(j).num_keypoints;
+                        tmpd = norm([s(1) - mean(p(1:n, 1)), s(2) - mean(p(1:n, 2))]); % distance of robot and target
+                        if tmpd < d
+                            d = tmpd;
+                            nearest = j;
+                        end
+                    end
+                    [entropy, ~] = cost(loss, s, ctr, j ,entropy);
+                end
+                if nearest ~= 0
+                    [~, loss] =  cost(loss, s, ctr, nearest, entropy);
+                end
+                this.entropy = entropy;
             end
             function loss = loss_func2(ctr)
                 loss = 0;
+                entropy = 0;
                 s = r.state;
+                d = Inf;
+                nearest = 0;
                 for j = 1:r.num_target
-                    loss = cost(loss, s, ctr, j);
+                    p = this.prop_targets(j).predicted;
+                    if ~isempty(p)
+                        n =  this.prop_targets(j).num_keypoints;
+                        tmpd = norm([s(1) - mean(p(1:n, 1)), s(2) - mean(p(1:n, 2))]); % distance of robot and target
+                        if tmpd < d
+                            d = tmpd;
+                            nearest = j;
+                        end
+                    end
+                    [entropy, ~] = cost(loss, s, ctr, j ,entropy);
                 end
+                if nearest ~= 0
+                    [~, loss] =  cost(loss, s, ctr, nearest, entropy);
+                end
+                r.entropy = entropy;
             end
             
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
@@ -310,43 +540,114 @@ classdef Robot
             ms2 = MultiStart;
             [opt_ctr2,~] = run(ms2,problem2,2);
             r.ctr = opt_ctr2(1:2)';
-            
-            % decide whether next time frame the robot can measure the target
-            p1 = this.trans(this.state, this.ctr, dt);
-            for j = 1:this.num_target
-                p = this.prop_targets(j).predicted;
-                if ~isempty(p)
-                    d1 = norm(mean(p(1:this.prop_targets(j).num_keypoints, 1)) - p1(1), mean(p(1:this.prop_targets(j).num_keypoints), 2) - p1(2));
-                    if d1 >= 0 && d1 <= 5
-                        this.next_poses = [this.next_poses; p1(1:2), p(1,3)];
-                        break;
-                    end
-                end
-            end
-            p2 = r.trans(r.state, r.ctr, dt);
-            for j = 1:this.num_target
-                pr = this.prop_targets(j).predicted;
-                if ~isempty(pr)
-                    d2 = norm(mean(pr(1:this.prop_targets(j).num_keypoints, 1)) - p2(1), mean(pr(1:this.prop_targets(j).num_keypoints, 2)) - p2(2));
-                    if d2 >= 0 && d2 <= 5
-                        this.next_poses = [this.next_poses; p2(1:2), pr(1,3)];
-                        break;
-                    end
-                end
-            end
-            
-            % update covariance of prediction
-            for j = 1:this.num_target
-                this.prop_targets(j).fcov(2) = this.prop_targets(j).fcov(3);
-                this.prop_targets(j).fcov(3) = cell(1, 1);
-                this.prop_targets(j).fcov(1) = cell(1, 1);
-            end
         end
         
-        function [this, r] = pass_next_pos(this, r)
-            r.next_poses = this.next_poses;
-            this.next_poses = [];
-        end
+        function [this, r1, r2, r3] = planPath_optimal(this, r1, r2, r3, dt, future_frame)
+            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+                gamma = 0.8;
+                p = [this.prop_targets(j).predicted; r2.prop_targets(j).predicted];
+                if ~isempty(p)
+                    for i = 1:future_frame
+                        s = this.trans(s, ctr(2*i-1:2*i), dt);
+                        n=  this.prop_targets(j).num_keypoints;
+                        d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
+                        %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
+                        w = max(1-(d^2-5*d+6.25)/6.25, 0);
 
+                        fcov = this.prop_targets(j).fcov{2};
+                        if ~isempty(fcov)
+                            fcovx = fcov{2*i-1}; fcovy = fcov{2*i};
+                            
+                            fcov_pre = this.prop_targets(j).fcov{1};
+                            fcovx_pre = fcov_pre{2*i-1}; fcovy_pre = fcov_pre{2*i};
+                            
+                            loss = loss + (1-gamma) * gamma^i * 1/2* ((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w; 
+                            
+                            if d <= 5 && d >= 0
+                                entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                            end
+                        end   
+                    end
+                end
+            end
+            function loss = loss_func(ctr)
+                loss = 0;
+                entropy = 0;
+                s = this.state;
+                ctr1 = ctr(1:2*future_frame);
+                for j = 1:this.num_target
+                    [entropy, loss] = cost(loss, s, ctr1, j, entropy);
+                end 
+                this.entropy = entropy;
+                
+                sr1 = r1.state;
+                entropy = 0;
+                ctr2 = ctr(2*future_frame + 1:4 * future_frame);
+                for j = 1:this.num_target
+                    [entropy, loss] = cost(loss, sr1, ctr2, j, entropy);
+                end
+                r1.entropy = entropy;
+                
+                sr2 = r2.state;
+                entropy = 0;
+                ctr3 = ctr(4*future_frame + 1:6 * future_frame);
+                for j = 1:this.num_target
+                    [entropy, loss] = cost(loss, sr2, ctr3, j, entropy);
+                end
+                r2.entropy = entropy;
+                
+                sr3 = r3.state;
+                entropy = 0;
+                ctr4 = ctr(6*future_frame + 1:8 * future_frame);
+                for j = 1:this.num_target
+                    [entropy, loss] = cost(loss, sr3, ctr4, j, entropy);
+                end
+                r3.entropy = entropy;
+            end
+            
+            A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
+            b = [ones([future_frame, 1]) * (3 - this.state(4)); ones([future_frame, 1]) * this.state(4)];
+            b2 = [ones([future_frame, 1]) * (3 - r1.state(4)); ones([future_frame, 1]) * r1.state(4)];
+            b3 = [ones([future_frame, 1]) * (3 - r2.state(4)); ones([future_frame, 1]) * r2.state(4)];
+            b4 = [ones([future_frame, 1]) * (3 - r3.state(4)); ones([future_frame, 1]) * r3.state(4)];
+            for j = 1:future_frame
+                for k = 1:j
+                    A(j, 2 * k) = dt;
+                end
+                b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
+                b3 = [b3; pi/6; 5];
+                b4 = [b4; pi/6; 5];
+            end
+            for j = future_frame+1:2*future_frame
+                for k = 1:j-future_frame
+                    A(j, 2 * k) = -dt;
+                end
+                b = [b; pi/6; 5];
+                b2 = [b2; pi/6; 5];
+                b3 = [b3; pi/6; 5];
+                b4 = [b4; pi/6; 5];
+            end
+                  
+            rng default % For reproducibility
+            
+            A_4 = [A, zeros(size(A)), zeros(size(A)), zeros(size(A));
+                   zeros(size(A)), A, zeros(size(A)), zeros(size(A));
+                   zeros(size(A)), zeros(size(A)), A, zeros(size(A));
+                   zeros(size(A)), zeros(size(A)), zeros(size(A)), A];
+            func = @loss_func;
+            x0 = [repmat(this.ctr, 1, future_frame)'; repmat(r1.ctr, 1, future_frame)';
+                  repmat(r2.ctr, 1, future_frame)'; repmat(r3.ctr, 1, future_frame)'];
+            opts = optimoptions(@fmincon,'Algorithm','sqp');
+            problem = createOptimProblem('fmincon','objective',...
+                func,'x0',x0,'Aineq',A_4,...
+                'bineq',[b; b2; b3; b4],'options',opts);
+            ms = MultiStart;
+            [opt_ctr,~] = run(ms,problem,2);
+            this.ctr = opt_ctr(1:2)';
+            r1.ctr = opt_ctr(2*future_frame+1:2*future_frame+2)';
+            r2.ctr = opt_ctr(4*future_frame+1:4*future_frame+2)';
+            r3.ctr = opt_ctr(6*future_frame+1:6*future_frame+2)';
+        end
     end
 end

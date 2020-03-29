@@ -3,7 +3,7 @@ classdef TargetProperty
         % measurements
         obs;  %observation
         new_obs;  %new_observation
-        num_keypoints; % the number of keypoints
+        num_keypoints = 0; % the number of keypoints
         
         % GP model parameters
         hyper_param_x;
@@ -13,7 +13,7 @@ classdef TargetProperty
         
         % prediction
         predicted;
-        fcov = cell(3, 1);
+        fcov = cell(2, 1);
     end
 end
         
