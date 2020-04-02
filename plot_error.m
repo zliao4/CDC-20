@@ -24,7 +24,7 @@ end
 
 legend 
 for i = 1:n
-    plot(1:num_data- future_frame + 1, errors{i}, 'LineWidth', 2)
+    plot(1:num_data- future_frame + 1, errors{i}, 'LineWidth', 3)
     hold on
 end
 
@@ -32,13 +32,14 @@ font_size = 40;
 th = title('GP prediction error','FontSize', font_size);
 set(th, 'Interpreter', 'none')
 xAX = get(gca,'XAxis');
-set(xAX,'FontSize', font_size)
+set(xAX,'FontSize', font_size, 'FontName', 'Times')
 yAX = get(gca,'yAxis');
-set(yAX,'FontSize', font_size)
-xlabel('Time Step')
-ylabel('Prediction Error / m')
+set(yAX,'FontSize', font_size, 'FontName', 'Times')
+xlabel('Time Step', 'FontName', 'Times')
+ylabel('Prediction Error / m', 'FontName', 'Times')
 box on
-leg = legend('Decentralized data fusion','Random control','Target pursuit');
+leg = legend('RESIN','Centralized GP Planner','Nearest Target Following Planner','Random Planner' , 'FontName', 'Times');
 leg.FontSize = font_size - 10;
+ axis([0, 400,0, 16])
 
 

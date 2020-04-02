@@ -269,7 +269,7 @@ classdef Robot
         
         %% plan the control input based on the predicted position of the object
         function [this, r] = planPath(this, r, dt, future_frame)
-            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+            function [entropy, loss, n_entro] = cost(loss, s, ctr, j, entropy, n_entro)
                 gamma = 0.8;
                 p = this.prop_targets(j).predicted;
                 if ~isempty(p)
@@ -289,9 +289,9 @@ classdef Robot
                             
                             loss = loss + (1-gamma) * gamma^i * 1/2* ((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w; 
                             
-                            if d <= 5 && d >= 0
-                                entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
-                            end
+                            
+                            entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                            n_entro = n_entro + 1;
                         end   
                     end
                 end
@@ -299,20 +299,22 @@ classdef Robot
             function loss = loss_func(ctr)
                 loss = 0;
                 entropy = 0;
+                n_entro = 0;
                 s = this.state;
                 ctr1 = ctr(1:2*future_frame);
                 for j = 1:this.num_target
-                    [entropy, loss] = cost(loss, s, ctr1, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, s, ctr1, j, entropy, n_entro);
                 end 
-                this.entropy = entropy;
+                this.entropy = entropy / n_entro;
                 
                 sr = r.state;
                 entropy = 0;
+                n_entro = 0;
                 ctr2 = ctr(2*future_frame + 1:4 * future_frame);
                 for j = 1:r.num_target
-                    [entropy, loss] = cost(loss, sr, ctr2, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, sr, ctr2, j, entropy, n_entro);
                 end
-                r.entropy = entropy;
+                r.entropy = entropy / n_entro;
             end
             
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
@@ -405,7 +407,10 @@ classdef Robot
                 end
             end
             
-            entropy = 0;
+            entropy1 = 0;
+            entropy2 = 0;
+            n_entro1 = 0;
+            n_entro2 = 0;
             s = this.state;
             sr = r.state;
             for j = 1:this.num_target
@@ -417,28 +422,30 @@ classdef Robot
                         d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
                         fcovx = this.prop_targets(j).model(i).fcovx;
                         fcovy = this.prop_targets(j).model(i).fcovy;
-                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
-                           entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                        if ~isempty(fcovx) && ~isempty(fcovy) %&& d <= 5 && d >= 0
+                           entropy1 = entropy1 + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                           n_entro1 = n_entro1 + 1;
                         end
                         
                         sr = this.trans(sr, r.ctr(2*i-1:2*i), dt);
                         d = norm([sr(1) - mean(p(i*n-n+1:i*n, 1)), sr(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
                         fcovx = this.prop_targets(j).model(i).fcovx;
                         fcovy = this.prop_targets(j).model(i).fcovy;
-                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
-                           entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                        if ~isempty(fcovx) && ~isempty(fcovy)% && d <= 5 && d >= 0
+                           entropy2 = entropy2 + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                           n_entro2 = n_entro2 + 1;
                         end
                     end   
                 end
             end
-            this.entropy = entropy;
-            r.entropy = entropy;
+            this.entropy = entropy1 / n_entro1;
+            r.entropy = entropy2 / n_entro2;
             this.ctr = this.ctr(1:2);
             r.ctr = r.ctr(1:2);
         end
         
         function [this, r] = planPath_pursue_nearest(this, r, dt, future_frame)
-            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+            function [entropy, loss, n_entro] = cost(loss, s, ctr, j, entropy, n_entro)
                 gamma = 0.8; 
                 p = this.prop_targets(j).predicted;
                 if ~isempty(p)
@@ -450,8 +457,9 @@ classdef Robot
 
                         fcovx = this.prop_targets(j).model(i).fcovx;
                         fcovy = this.prop_targets(j).model(i).fcovy;
-                        if ~isempty(fcovx) && ~isempty(fcovy) && d <= 5 && d >= 0
+                        if ~isempty(fcovx) && ~isempty(fcovy)% && d <= 5 && d >= 0
                            entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                           n_entro = n_entro + 1;
                         end
                     end   
                 end
@@ -459,6 +467,7 @@ classdef Robot
             function loss = loss_func(ctr)
                 loss = 0;
                 entropy = 0;
+                n_entro = 0;
                 s = this.state;
                 d = Inf;
                 nearest = 0;
@@ -472,16 +481,17 @@ classdef Robot
                             nearest = j;
                         end
                     end
-                    [entropy, ~] = cost(loss, s, ctr, j ,entropy);
+                    [entropy, ~, n_entro] = cost(loss, s, ctr, j ,entropy, n_entro);
                 end
                 if nearest ~= 0
-                    [~, loss] =  cost(loss, s, ctr, nearest, entropy);
+                    [~, loss, ~] =  cost(loss, s, ctr, nearest, entropy, n_entro);
                 end
-                this.entropy = entropy;
+                this.entropy = entropy / n_entro;
             end
             function loss = loss_func2(ctr)
                 loss = 0;
                 entropy = 0;
+                n_entro = 0;
                 s = r.state;
                 d = Inf;
                 nearest = 0;
@@ -495,12 +505,12 @@ classdef Robot
                             nearest = j;
                         end
                     end
-                    [entropy, ~] = cost(loss, s, ctr, j ,entropy);
+                    [entropy, ~, n_entro] = cost(loss, s, ctr, j ,entropy, n_entro);
                 end
                 if nearest ~= 0
-                    [~, loss] =  cost(loss, s, ctr, nearest, entropy);
+                    [~, loss, ~] =  cost(loss, s, ctr, nearest, entropy, n_entro);
                 end
-                r.entropy = entropy;
+                r.entropy = entropy / n_entro;
             end
             
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];
@@ -543,15 +553,17 @@ classdef Robot
         end
         
         function [this, r1, r2, r3] = planPath_optimal(this, r1, r2, r3, dt, future_frame)
-            function [entropy, loss] = cost(loss, s, ctr, j, entropy)
+            function [entropy, loss, n_entro] = cost(loss, s, ctr, j, entropy, n_entro)
                 gamma = 0.8;
-                p = [this.prop_targets(j).predicted; r2.prop_targets(j).predicted];
+                p = [this.prop_targets(j).predicted];
+                
                 if ~isempty(p)
                     for i = 1:future_frame
                         s = this.trans(s, ctr(2*i-1:2*i), dt);
                         n=  this.prop_targets(j).num_keypoints;
                         d = norm([s(1) - mean(p(i*n-n+1:i*n, 1)), s(2) - mean(p(i*n-n+1:i*n, 2))]); % distance of robot and target
-                        %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
+
+                            %w = exp(5*d-5)./(1+exp(5*d-5)) + exp(20-5*d)./(1+exp(20-5*d))-1; % weight based on distance
                         w = max(1-(d^2-5*d+6.25)/6.25, 0);
 
                         fcov = this.prop_targets(j).fcov{2};
@@ -563,9 +575,8 @@ classdef Robot
                             
                             loss = loss + (1-gamma) * gamma^i * 1/2* ((logdet(fcovx)+logdet(fcovy)) - (logdet(fcovx_pre)+logdet(fcovy_pre))) * w; 
                             
-                            if d <= 5 && d >= 0
-                                entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
-                            end
+                            entropy = entropy + 1/2*((logdet(fcovx)+logdet(fcovy)));
+                            n_entro = n_entro + 1;
                         end   
                     end
                 end
@@ -573,36 +584,40 @@ classdef Robot
             function loss = loss_func(ctr)
                 loss = 0;
                 entropy = 0;
+                n_entro = 0;
                 s = this.state;
                 ctr1 = ctr(1:2*future_frame);
                 for j = 1:this.num_target
-                    [entropy, loss] = cost(loss, s, ctr1, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, s, ctr1, j, entropy, n_entro);
                 end 
-                this.entropy = entropy;
+                this.entropy = entropy / n_entro;
                 
                 sr1 = r1.state;
                 entropy = 0;
+                n_entro = 0;
                 ctr2 = ctr(2*future_frame + 1:4 * future_frame);
                 for j = 1:this.num_target
-                    [entropy, loss] = cost(loss, sr1, ctr2, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, sr1, ctr2, j, entropy, n_entro);
                 end
-                r1.entropy = entropy;
+                r1.entropy = entropy / n_entro;
                 
                 sr2 = r2.state;
                 entropy = 0;
+                n_entro = 0;
                 ctr3 = ctr(4*future_frame + 1:6 * future_frame);
                 for j = 1:this.num_target
-                    [entropy, loss] = cost(loss, sr2, ctr3, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, sr2, ctr3, j, entropy, n_entro);
                 end
-                r2.entropy = entropy;
+                r2.entropy = entropy / n_entro;
                 
                 sr3 = r3.state;
                 entropy = 0;
+                n_entro = 0;
                 ctr4 = ctr(6*future_frame + 1:8 * future_frame);
                 for j = 1:this.num_target
-                    [entropy, loss] = cost(loss, sr3, ctr4, j, entropy);
+                    [entropy, loss, n_entro] = cost(loss, sr3, ctr4, j, entropy, n_entro);
                 end
-                r3.entropy = entropy;
+                r3.entropy = entropy / n_entro;
             end
             
             A = [zeros([2*future_frame,2*future_frame]); eye(2*future_frame); -eye(2*future_frame)];

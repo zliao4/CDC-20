@@ -28,30 +28,16 @@ function [p_t, c_t, p, p_r, e] = spline_5_targets_optimal(A, W, T, num_target, R
         end
 
         % data passing
-        for j = 1:num_robot / 2
-            [R(2*j), R(2*j-1)] = R(2*j).addData(R(2*j-1));
+        for j = 1:num_robot - 1
+            [R(4), R(j)] = R(4).addData(R(j));
         end
 
         % GP learning
-        R(2) = R(2).learnGP(5);  
         R(4) = R(4).learnGP(5);
 
         % make pre_prediction
-        R(2) = R(2).pre_prediction(future_frame, dt, 5); 
         R(4) = R(4).pre_prediction(future_frame, dt, 5);
-
-        % prediction converge
-        [R(4), R(2)] = R(4).converge(R(2), future_frame);
-        
-        %%%%%% Generate new conjugacy model %%%%%%%%%%%%
-        %%%%%% R2 conjugate with sigma^2 * I %%%%%%%%%%%
-        %%%%%% Store pre-conju and post-conju %%%%%%%%%%
-        R(2) = R(2).conjugate(future_frame);
-
-        R(2) = R(2).post_prediction(future_frame, dt); 
-        [R(2), R(1)] = R(2).planPath(R(1), dt, future_frame); % path palnning
-        [R(2), R(4)] = pass_next_pos(R(2), R(4)); % data passing
-        
+       
         %%%%%% R4 conjugate with R2 passed pose %%%%%%%%
         %%%%%% R4 conjugate with sigma ^2 * I %%%%%%%%%%
         %%%%%% Store pre-conju and post-conju %%%%%%%%%%
@@ -63,8 +49,8 @@ function [p_t, c_t, p, p_r, e] = spline_5_targets_optimal(A, W, T, num_target, R
         
         for j = 1:num_robot/2
             for k = 1:num_target
-                if ~isempty(R(2*j).prop_targets(k).predicted)
-                    p{2*j}{k} = [p{2*j}{k}, {R(2*j).prop_targets(k).predicted}];
+                if ~isempty(R(4).prop_targets(k).predicted)
+                    p{2*j}{k} = [p{2*j}{k}, {R(4).prop_targets(k).predicted}];
                 else
                     p{2*j}{k} = [p{2*j}{k}, {[-100, -100]}];
                 end
@@ -75,6 +61,6 @@ function [p_t, c_t, p, p_r, e] = spline_5_targets_optimal(A, W, T, num_target, R
         for j = 1:num_robot
             tmpe = tmpe + R(j).entropy;
         end
-        e  =[e, tmpe];
+        e  =[e, tmpe / 4];
     end
 end
