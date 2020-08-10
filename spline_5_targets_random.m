@@ -33,12 +33,12 @@ function [p_t, c_t, p, p_r, e] = spline_5_targets_random(A, W, T, num_target, R,
         end
 
         % GP learning
-        R(2) = R(2).learnGP(5);  
-        R(4) = R(4).learnGP(5);
+        R(2) = R(2).learnGP(9999);  
+        R(4) = R(4).learnGP(9999);
 
         % make pre_prediction
-        R(2) = R(2).pre_prediction(future_frame, dt, 5); 
-        R(4) = R(4).pre_prediction(future_frame, dt, 5);
+        R(2) = R(2).pre_prediction(future_frame, dt, 9999); 
+        R(4) = R(4).pre_prediction(future_frame, dt, 9999);
 
         % make post_prediction
         R(2) = R(2).post_prediction(future_frame, dt); 
