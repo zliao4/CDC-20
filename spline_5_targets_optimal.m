@@ -33,10 +33,10 @@ function [p_t, c_t, p, p_r, e] = spline_5_targets_optimal(A, W, T, num_target, R
         end
 
         % GP learning
-        R(4) = R(4).learnGP(5);
+        R(4) = R(4).learnGP(9999);
 
         % make pre_prediction
-        R(4) = R(4).pre_prediction(future_frame, dt, 5);
+        R(4) = R(4).pre_prediction(future_frame, dt, 9999);
        
         %%%%%% R4 conjugate with R2 passed pose %%%%%%%%
         %%%%%% R4 conjugate with sigma ^2 * I %%%%%%%%%%
