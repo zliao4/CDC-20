@@ -77,4 +77,4 @@ end
 
 plot_path({c_t1, c_t2, c_t3, c_t4}, {p_t1, p_t2, p_t3, p_t4}, {p1, p2, p3, p4}, {p_r1, p_r2, p_r3, p_r4}, num_data, num_target, num_robot)
 plot_error({p1, p4, p3, p2}, {p_t1, p_t4, p_t3, p_t2}, num_data, num_target, num_robot, 5)
-plot_entropy({e1,e2,e3,e4}, num_data)
+
